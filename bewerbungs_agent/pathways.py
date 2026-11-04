@@ -46,7 +46,12 @@ def collect_programmes(cache_dir):
 
 def rank_pathways(jobs, profile, programmes):
     from .daily import rank
-    employee = [dict(job, track='employment', entry_type='vacancy') for job in rank(jobs, profile)]
+    candidates = rank(jobs, profile)
+    if profile and profile.get('focused_search'):
+        from .focus import assess
+        candidates = [result for job in candidates if (result := assess(job, profile)) is not None]
+        candidates.sort(key=lambda job: (job['seniority_status'] == 'experienced', job['score'], job.get('published') or ''), reverse=True)
+    employee = [dict(job, track='employment', entry_type='vacancy') for job in candidates]
     self_profile = profile.get('self_employment') if profile else None
     if self_profile:
         independent = rank(jobs, self_profile)
