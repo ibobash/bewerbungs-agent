@@ -1,0 +1,87 @@
+name: Tägliche Stellensuche
+on:
+  schedule:
+    # Both UTC offsets; the next step selects 07:00 Europe/Berlin (DST aware).
+    - cron: '0 5,6 * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: daily-search-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Morgenzeit in Deutschland prüfen
+        id: clock
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          run = os.environ['EVENT_NAME'] != 'schedule' or datetime.now(ZoneInfo('Europe/Berlin')).hour == 7
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"run={str(run).lower()}\n")
+              f.write(f"day={datetime.now(ZoneInfo('UTC')).date()}\n")
+          PY
+      - uses: actions/checkout@v7.0.1
+        if: steps.clock.outputs.run == 'true'
+      - uses: actions/setup-python@v7.1.0
+        if: steps.clock.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+      - name: Öffentliche Quelldaten pro Tag zwischenspeichern
+        if: steps.clock.outputs.run == 'true'
+        uses: actions/cache@v6.1.0
+        with:
+          path: .source-cache
+          key: job-sources-v1-${{ runner.os }}-${{ steps.clock.outputs.day }}
+      - name: Automatische Tests
+        if: steps.clock.outputs.run == 'true'
+        run: python -m unittest discover -s tests -v
+      - name: Stellen abrufen und Bericht erstellen
+        if: steps.clock.outputs.run == 'true'
+        env:
+          # Never expose the private profile to pull request code.
+          PROFILE_JSON: ${{ github.event_name != 'pull_request' && secrets.JOB_PROFILE_JSON || '' }}
+          SKIP_REMOTIVE: ${{ github.event_name == 'pull_request' }}
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess, sys
+          profile = pathlib.Path(os.environ['RUNNER_TEMP']) / 'job-profile.json'
+          command = [sys.executable, '-m', 'bewerbungs_agent.daily']
+          if os.environ.get('SKIP_REMOTIVE') == 'true':
+              command.append('--skip-remotive')
+          try:
+              if os.environ.get('PROFILE_JSON', '').strip():
+                  profile.write_text(os.environ['PROFILE_JSON'], encoding='utf-8')
+                  profile.chmod(0o600)
+                  command += ['--profile', str(profile)]
+              else:
+                  print('::warning::Berufsprofil fehlt oder PR-Test: unpersonalisierter technischer Bericht.')
+              raise SystemExit(subprocess.call(command))
+          finally:
+              profile.unlink(missing_ok=True)
+          PY
+      - name: Bericht direkt im Lauf anzeigen
+        if: always() && steps.clock.outputs.run == 'true'
+        run: |
+          if [ -f reports/report.md ]; then
+            cat reports/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Kein Bericht erstellt. Bitte die Fehlermeldung im Lauf prüfen.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Bericht herunterladen
+        if: always() && steps.clock.outputs.run == 'true'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: stellenbericht-${{ github.run_number }}
+          path: reports/
+          retention-days: 30
+          if-no-files-found: error
