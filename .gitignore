@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.env
+jobs.json
+reports/
+profile.json
+*profile.private.json
