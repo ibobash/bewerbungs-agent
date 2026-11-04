@@ -68,6 +68,7 @@ def home_office(text, remote=False, hybrid=False):
 
 def normalize(raw, source):
     hybrid = False
+    requirements_text = ""
     if source == "Arbeitnow":
         title, company, location = raw["title"], raw["company_name"], raw.get("location", "")
         remote, date, url = raw.get("remote", False), raw.get("created_at"), raw["url"]
@@ -78,6 +79,7 @@ def normalize(raw, source):
         title, company, location = raw["position"], raw["company"], raw.get("location", "")
         remote, date, url = True, raw.get("date", raw.get("epoch")), raw["url"]
     elif source == "Brainlab (SmartRecruiters)":
+        requirements_text = plain_text(raw.get("jobAd", {}).get("sections", {}).get("qualifications", {}).get("text", ""))
         title, company = raw["name"], raw["company"]["name"]
         location = raw.get("location", {}).get("fullLocation", "")
         remote = raw.get("location", {}).get("remote", False)
@@ -95,10 +97,10 @@ def normalize(raw, source):
     return dict(title=title, company=company, location=location or "Nicht angegeben",
                 remote=bool(remote), published=publication(date), url=url, source=source,
                 description=description, tags=raw.get("tags", []),
-                homeoffice=homeoffice, homeoffice_evidence=evidence)
+                homeoffice=homeoffice, homeoffice_evidence=evidence, requirements_text=requirements_text)
 
 
-def collect(pages=3, cache_dir=None, skip_remotive=False):
+def collect(pages=3, cache_dir=None, skip_remotive=False, refresh=False):
     jobs, statuses = [], []
     loaders = {
         "Arbeitnow": lambda: fetch_jobs(pages),
@@ -117,7 +119,7 @@ def collect(pages=3, cache_dir=None, skip_remotive=False):
                 key = re.sub(r"[^a-z]+", "-", source.casefold())
                 source_pages = pages if source == "Arbeitnow" else 1
                 cache = cache_dir / f"{datetime.now(timezone.utc).date()}-{key}-{source_pages}.json"
-            cached = bool(cache and cache.exists())
+            cached = bool(cache and cache.exists() and (not refresh or source == "Remotive"))
             raw_jobs = json.loads(cache.read_text(encoding="utf-8")) if cached else loader()
             normalized, invalid = [], 0
             for raw in raw_jobs:
@@ -147,7 +149,7 @@ def collect(pages=3, cache_dir=None, skip_remotive=False):
 def validate_profile(profile):
     if not isinstance(profile, dict):
         raise ValueError("Das Profil muss ein JSON-Objekt sein.")
-    for field in ("target_roles", "skills", "locations", "exclude_keywords", "excluded_role_keywords", "required_keywords", "required_any_keywords", "preferred_roles", "preferred_locations"):
+    for field in ("target_roles", "skills", "locations", "exclude_keywords", "excluded_role_keywords", "required_keywords", "required_any_keywords", "preferred_roles", "preferred_locations", "excluded_locations"):
         value = profile.get(field, [])
         if not isinstance(value, list) or any(not isinstance(term, str) or not term.strip() for term in value):
             raise ValueError(f"{field} muss eine Liste nichtleerer Texte sein.")
@@ -159,6 +161,23 @@ def validate_profile(profile):
         raise ValueError("search_note muss Text sein.")
     if not isinstance(profile.get("homeoffice_required", False), bool):
         raise ValueError("homeoffice_required muss true oder false sein.")
+    for field in ("experienced_only", "focused_search"):
+        if field in profile and not isinstance(profile[field], bool):
+            raise ValueError(f"{field} muss true oder false sein.")
+    if not isinstance(profile.get("max_age_days", 90), int) or not 1 <= profile.get("max_age_days", 90) <= 365:
+        raise ValueError("max_age_days muss zwischen 1 und 365 liegen.")
+    if not isinstance(profile.get("competency_groups", []), list):
+        raise ValueError("competency_groups muss eine Liste sein.")
+    if not isinstance(profile.get("min_competency_groups", 2), int) or profile.get("min_competency_groups", 2) < 0:
+        raise ValueError("min_competency_groups muss eine nichtnegative ganze Zahl sein.")
+    for group in profile.get("competency_groups", []):
+        if not isinstance(group, dict) or not isinstance(group.get("name"), str) or not isinstance(group.get("terms"), list) or not group['terms'] or any(not isinstance(term, str) or not term.strip() for term in group['terms']):
+            raise ValueError("Jede Kompetenzgruppe benötigt name und eine nichtleere terms-Liste.")
+    if not isinstance(profile.get("experience_checks", []), list):
+        raise ValueError("experience_checks muss eine Liste sein.")
+    for check in profile.get("experience_checks", []):
+        if not isinstance(check, dict) or not isinstance(check.get("role_terms"), list) or not check['role_terms'] or any(not isinstance(term, str) or not term.strip() for term in check['role_terms']) or not isinstance(check.get("documented_years"), (int, float)) or not isinstance(check.get("evidence"), str):
+            raise ValueError("Ein Erfahrungsabgleich benötigt role_terms, documented_years und evidence.")
     salary = profile.get("salary_target_eur")
     if salary is not None and (isinstance(salary, bool) or not isinstance(salary, (int, float)) or salary <= 0):
         raise ValueError("salary_target_eur muss eine positive Zahl sein.")
@@ -234,8 +253,11 @@ def write_report(directory, jobs, statuses, personalized, total, limit=50, searc
              "## Quellenstatus", ""]
     for status in statuses:
         lines.append(f"- {status['source']}: " + (f"{status['count']} Einträge; {status['invalid']} ungültige übersprungen" if status['ok'] else ("ÜBERSPRUNGEN: " if status.get('skipped') else "FEHLER: ") + markdown_text(status['error'])))
-    lines += ["", "Bewertung: Textabgleich, keine bestätigte berufliche Eignung. Zielposition im Titel: 60 Punkte; "
-              "Anteil genannter Profilkenntnisse: bis zu 40 weitere Punkte. Fehlende Kenntnisse, Berufserfahrung, "
+    lines += ["", "Bewertung: erklärbarer Profilabgleich, keine bestätigte berufliche Eignung. Bei der fokussierten Anstellungssuche: "
+              "Zielrolle 25, Erfahrung 20, Kompetenzgruppen 25, Branche 10, Homeoffice 10, Arbeitsort 10 Punkte. "
+              "Ein passender Ortsname belegt noch keinen 20-km-Radius und erhält nur 5 Ortspunkte. "
+              "80–100: starker, 70–79: guter, 55–69: teilweiser Profilabgleich; darunter geringe Übereinstimmung. "
+              "Fehlende Kenntnisse, Berufserfahrung, "
               "Gehalt, Arbeitszeit und tatsächliche Einstellungsberechtigung müssen geprüft werden. "
               "Remote bedeutet nicht automatisch, dass Arbeit aus Deutschland erlaubt ist. "
               "Veröffentlichungsdaten stammen von der Quelle; unbekannte Daten werden nicht geschätzt. "
@@ -246,13 +268,11 @@ def write_report(directory, jobs, statuses, personalized, total, limit=50, searc
               "Für Prüfingenieure gelten insbesondere die Voraussetzungen der "
               "[Anlage VIIIb StVZO](https://www.gesetze-im-internet.de/stvzo_2012/anlage_viiib.html); "
               "ein Ingenieurabschluss oder eine nebenberufliche Gutachtertätigkeit allein bestätigt die Berechtigung nicht.", ""]
-    cards = []
     previous_track = None
     for job in shown:
         track = job.get("track", "employment")
         if track != previous_track:
             lines += [f"# {track_names[track]}", ""]
-            cards.append(f"<h2>{track_names[track]}</h2>")
             previous_track = track
         rating = f"{job['score']}/100 (Textabgleich)" if job['score'] is not None else "Nicht bewertet – Profil fehlt"
         if job.get("entry_type") == "programme":
@@ -264,43 +284,38 @@ def write_report(directory, jobs, statuses, personalized, total, limit=50, searc
                   f"Veröffentlicht: {date} · Homeoffice belegt: {'Ja' if job.get('homeoffice') else 'Nein/unklar'} · Bewertung: {rating}", "",
                   markdown_text("; ".join(job['reasons'])), "",
                   f"[Anzeige bei {job['source']} öffnen](<{url}>)", ""]
-        cards.append(f"<article><h2>{escape(job['title'])}</h2><p><b>{escape(job['company'])}</b> · {escape(job['location'])}</p>"
-                     f"<p>Veröffentlicht: {date} · Homeoffice belegt: {'Ja' if job.get('homeoffice') else 'Nein/unklar'} · {rating}</p>"
-                     f"<p>{escape('; '.join(job['reasons']))}</p><a href=\"{escape(job['url'], quote=True)}\">Anzeige bei {job['source']} öffnen</a></article>")
     if not shown:
         lines += ["Keine passenden Stellen in den abgerufenen Quellen. Dies ist keine Aussage über den gesamten Stellenmarkt.", ""]
     for track, name in track_names.items():
         if not any(job.get("track", "employment") == track for job in shown):
             lines += [f"## {name}", "", "Keine Ergebnisse im aktuellen Abruf.", ""]
-            cards.append(f"<h2>{name}</h2><p>Keine Ergebnisse im aktuellen Abruf.</p>")
     (directory / "report.md").write_text("\n".join(lines), encoding="utf-8")
-    html = ('<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
-            '<title>Stellenbericht</title><style>body{font:17px system-ui;max-width:960px;margin:2rem auto;padding:1rem;background:#f5f7fa;color:#182130}'
-            'article{background:white;padding:1.2rem;margin:1rem 0;border:1px solid #ccd5df;border-radius:10px}a{color:#064ba4}h2{font-size:1.2rem}</style>'
-            f'<h1>Täglicher Stellenbericht</h1><p><b>{escape(mode)}</b></p><p>{escape(now)} · {len(jobs)} Ergebnisse einschließlich Programme · {len(shown)} angezeigt</p>'
-            f'<p>{escape(search_note)}</p>'
-            '<p>Qualifizierungs-/Partnerprogramme sind keine konkreten Stellenangebote. '
-            '<a href="https://www.gesetze-im-internet.de/stvzo_2012/anlage_viiib.html">Anlage VIIIb StVZO: Voraussetzungen für Prüfingenieure</a>.</p>'
-            '<details><summary>Quellen und Grenzen der Bewertung</summary><pre style="white-space:pre-wrap">' + escape('\n'.join(lines[8:10+len(statuses)+3])) + '</pre></details>'
-            + ''.join(cards) + ('<p>Keine Treffer.</p>' if not cards else '') + '</html>')
-    (directory / "report.html").write_text(html, encoding="utf-8")
+    from .dashboard import write_dashboard
+    write_dashboard(directory, data)
     return data
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Tägliche Stellensuche über drei öffentliche APIs")
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Persönliche regionale Stellensuche und Dashboard")
     parser.add_argument("--profile", type=Path)
     parser.add_argument("--report-dir", type=Path, default=Path("reports"))
     parser.add_argument("--pages", type=int, choices=range(1, 11), default=10)
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--cache-dir", type=Path, default=Path(".source-cache"))
     parser.add_argument("--skip-remotive", action="store_true", help="Für wiederholte PR-Tests zur Schonung der API")
-    args = parser.parse_args()
+    parser.add_argument("--diagnostic", action="store_true", help="Expliziter unpersonalisierter Techniktest")
+    parser.add_argument("--refresh", action="store_true", help="Quellen neu abrufen; Remotive höchstens einmal pro Tag")
+    args = parser.parse_args(argv)
     if args.limit < 1:
         parser.error("--limit muss positiv sein")
+    if not args.profile and not args.diagnostic:
+        parser.error("Persönliches Berufsprofil fehlt. Bitte JOB_PROFILE_JSON hinterlegen. Keine ungefilterte Ersatzsuche gestartet.")
     try:
         profile = validate_profile(json.loads(args.profile.read_text(encoding="utf-8"))) if args.profile else None
-        jobs, statuses = collect(args.pages, args.cache_dir, args.skip_remotive)
+        if profile:
+            from .focus import prepare_profile
+            profile = prepare_profile(profile)
+        jobs, statuses = collect(args.pages, args.cache_dir, args.skip_remotive, args.refresh)
         from .pathways import collect_programmes, rank_pathways
         programmes, programme_statuses = collect_programmes(args.cache_dir)
         results = rank_pathways(jobs, profile, programmes)

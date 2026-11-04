@@ -11,5 +11,10 @@
   "preferred_locations": [],
   "excluded_role_keywords": [],
   "homeoffice_required": false,
-  "salary_target_eur": null
+  "salary_target_eur": null,
+  "experienced_only": true,
+  "max_age_days": 90,
+  "min_competency_groups": 2,
+  "competency_groups": [],
+  "experience_checks": []
 }
