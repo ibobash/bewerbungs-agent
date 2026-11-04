@@ -29,9 +29,9 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"run={str(run).lower()}\n")
           PY
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         if: steps.clock.outputs.run == 'true'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         if: steps.clock.outputs.run == 'true'
         with:
           python-version: '3.12'
@@ -69,7 +69,7 @@ jobs:
           fi
       - name: Bericht herunterladen
         if: always() && steps.clock.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: stellenbericht-${{ github.run_number }}
           path: reports/
