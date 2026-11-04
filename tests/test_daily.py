@@ -65,5 +65,49 @@ class DailyTests(unittest.TestCase):
             self.assertIsNone(data['jobs'][0]['score'])
 
 
+class PreferenceTests(unittest.TestCase):
+    def test_each_path_remains_visible_when_report_limit_is_reached(self):
+        job = normalize(dict(title='Project Engineer', company_name='Example', location='Munich',
+                             remote=True, url='https://example.org/job', description='', tags=[]), 'Arbeitnow')
+        employee = dict(job, score=60, reasons=['Textabgleich'], track='employment')
+        programme = dict(job, score=None, reasons=['Voraussetzungen offen'], track='self_employment', entry_type='programme')
+        with tempfile.TemporaryDirectory() as directory:
+            data = write_report(Path(directory), [employee, employee, programme], [], True, 3, limit=1)
+            self.assertEqual(len(data['jobs']), 2)
+            self.assertEqual(data['jobs'][1]['track'], 'self_employment')
+            self.assertIsNone(data['jobs'][1]['score'])
+
+    def test_homeoffice_is_not_hybrid_vehicle_technology(self):
+        from bewerbungs_agent.daily import home_office
+        self.assertFalse(home_office('Entwicklung von Hybrid-Antrieben')[0])
+        self.assertTrue(home_office('Flexible hours and hybrid work model within Germany')[0])
+        self.assertFalse(home_office('Homeoffice ist nicht möglich', remote=True)[0])
+        self.assertFalse(home_office('Kein Anspruch auf Homeoffice')[0])
+
+    def test_independent_path_does_not_inherit_employee_salary_or_homeoffice(self):
+        from bewerbungs_agent.pathways import rank_pathways
+        job = normalize(dict(title='Kfz-Prüfingenieur', company_name='Prüfbüro', location='München',
+                             remote=False, url='https://example.org/job', description='Hauptuntersuchung nach StVZO', tags=[]), 'Arbeitnow')
+        profile = dict(target_roles=['Systemingenieur'], homeoffice_required=True, salary_target_eur=90000,
+                       self_employment=dict(target_roles=['Kfz-Prüfingenieur']))
+        results = rank_pathways([job], profile, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['track'], 'self_employment')
+        self.assertNotIn('Gehaltsziel', ' '.join(results[0]['reasons']))
+
+    @patch('bewerbungs_agent.daily.fetch_brainlab', return_value=[])
+    @patch('bewerbungs_agent.daily.request_json')
+    @patch('bewerbungs_agent.daily.fetch_jobs')
+    def test_same_day_cache_avoids_repeated_api_calls(self, arbeitnow, request, brainlab):
+        arbeitnow.return_value = []
+        request.side_effect = [{'jobs': []}, []]
+        with tempfile.TemporaryDirectory() as directory:
+            collect(cache_dir=Path(directory))
+            collect(cache_dir=Path(directory))
+        self.assertEqual(arbeitnow.call_count, 1)
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(brainlab.call_count, 1)
+
+
 if __name__ == '__main__':
     unittest.main()

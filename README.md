@@ -1,8 +1,11 @@
 # Bewerbungsagent
 
-Der Agent ruft Stellen über drei öffentliche APIs ab, gleicht sie mit einem
+Der Agent verfolgt zwei getrennte Pfade: Anstellung und Selbstständigkeit als
+Kfz-Prüfingenieur. Er ruft Stellen über vier öffentliche APIs ab, gleicht sie mit einem
 Berufsprofil ab und erstellt einen Bericht mit direkten Anzeigenlinks,
-Veröffentlichungsdatum, Bewertung und Begründung. Er verschickt keine Bewerbungen.
+Veröffentlichungsdatum, Bewertung und Begründung. Offizielle GTÜ-/KÜS-Programme
+für Qualifizierung und Partnerschaften erscheinen getrennt von Stellenanzeigen.
+Er verschickt keine Bewerbungen und nimmt keinen Kontakt zu Organisationen auf.
 Python 3.10+ reicht aus; zusätzliche Pakete sind nicht erforderlich.
 
 ## Täglichen Bericht auf GitHub ansehen
@@ -36,7 +39,8 @@ Das echte Profil wird **nicht ins öffentliche Repository eingecheckt**. Unter
 namens **JOB_PROFILE_JSON** anlegen und das vorbereitete Profil-JSON hineinkopieren.
 Danach **Actions → Tägliche Stellensuche → Run workflow** starten. Das Profil
 wird nur vorübergehend in einer geschützten Runner-Datei gespeichert und gelöscht.
-PR-Tests erhalten kein Profil-Secret und erstellen einen klar markierten,
+PR-Tests erhalten kein Profil-Secret, überspringen Remotive zur Schonung der API
+und erstellen einen klar markierten,
 unpersonalisierten technischen Bericht. Ohne Secret gilt das auch für tägliche Läufe.
 Ungültige Profile führen zu einem sichtbaren Fehler, nicht zu einer stillen Ersatzsuche.
 
@@ -49,21 +53,33 @@ persönlichen Angaben. Ein leeres `target_roles` ist ungültig:
 - `locations`: Orts-/Länderbegriffe, mindestens einer muss im angegebenen Ort
   vorkommen; leer bedeutet keine Ortsbeschränkung. Kein geographischer Radius.
 - `remote_only`: Nur als remote markierte Anzeigen, falls `true`.
+- `homeoffice_required`: Nur Anzeigen mit positivem Homeoffice-/Hybrid-Hinweis
+  im Text oder in Quellmetadaten. Negative Hinweise werden ausgeschlossen.
+  Die Erkennung ist regelbasiert; die konkrete Vereinbarung muss geprüft werden.
+- `preferred_roles` und `preferred_locations`: Vorrangige Titel und Ortsnamen.
+  Diese bestimmen die Sortierung, sind aber keine harte Entfernungsmessung.
+- `salary_target_eur`: Jahresgehaltsziel als Hinweis; kein bestätigter Anzeigenlohn.
+- `excluded_role_keywords`: Ausschluss unpassender Titel (z. B. IT-Infrastruktur
+  oder Einstiegsprogramme), ohne jeden Nebensatz der Anzeige auszuschließen.
+- `self_employment`: Separates Profil für Prüfingenieur-Anzeigen. Homeoffice- und
+  Gehaltsvorgaben des Anstellungspfads werden nicht automatisch übernommen.
 - `required_keywords`: Alle Begriffe müssen in Titel/Beschreibung/Tags vorkommen.
 - `required_any_keywords`: Mindestens ein Begriff muss vorkommen, sofern angegeben;
   geeignet, um technische Branchen von ähnlich benannten IT-Rollen zu unterscheiden.
 - `exclude_keywords`: Anzeigen mit einem dieser Begriffe werden ausgeschlossen.
 - `search_note`: Offene Wünsche oder Annahmen, die im Bericht sichtbar bleiben.
 
-Die aus einem Lebenslauf abgeleiteten Suchrichtungen sind vorläufig, bis
-Zielpositionen und Suchwünsche bestätigt sind. Wohnort bedeutet nicht automatisch
-gewünschter Arbeitsort. Ohne bestätigte Ortsvorgabe wird deshalb breit gesucht.
-Voll-/Teilzeit, Gehalt und Pendelradius werden noch nicht strukturiert geprüft.
+Das vorbereitete private Profil verwendet den hochgeladenen Lebenslauf und die
+bestätigten Suchwünsche. Die frühere Python-/SQL-Testsuche wird nicht übernommen.
+Münchner Westen/20 km sind eine Standortpräferenz; wegen fehlender genauer
+Arbeitgeberadressen wird kein Treffer als nachweislich innerhalb von 20 km
+ausgegeben. Überregionale Alternativen bleiben gekennzeichnet. Voll-/Teilzeit,
+Gehaltsniveau und genaue Entfernung werden noch nicht strukturiert geprüft.
 
 ## Quellen und Grenzen
 
 - **Arbeitnow**: https://www.arbeitnow.com/api/job-board-api — standardmäßig bis
-  zu drei Seiten (etwa 900 Anzeigen), mit Original-Anzeigenlinks.
+  zu zehn Seiten (höchstens etwa 3.000 Anzeigen), mit Original-Anzeigenlinks.
 - **Remotive**: https://remotive.com/api/remote-jobs — öffentliche Remote-Stellen,
   mit Quellenangabe und Rücklink zu Remotive; API-Anzeigen sind 24 Stunden verzögert.
   Empfehlung des Anbieters: höchstens vier Abrufe pro Tag. Deshalb technische
@@ -71,6 +87,14 @@ Voll-/Teilzeit, Gehalt und Pendelradius werden noch nicht strukturiert geprüft.
   Stellenaggregatoren, keine Registrierungsschranke.
 - **Remote OK**: https://remoteok.com/api — mit Quellenangabe und Rücklink
   zu Remote OK; ohne Verwendung des Logos.
+- **Brainlab / SmartRecruiters**: öffentliche Arbeitgeber-API, deutsche technische
+  Rollen einschließlich vollständiger Anzeigentexte, Direktlinks zur offiziellen
+  Stellenanzeige. Erweitert die Suche gezielt um Medizintechnik.
+- **GTÜ und KÜS**: drei offizielle Informationsseiten zu Qualifizierung und
+  Selbstständigkeit. Erreichbarkeit und passender Inhalt werden täglich geprüft.
+  Sie sind keine konkreten Stellenanzeigen und bestätigen keine lokale
+  Partnerschaft, Vergütung oder persönliche Zulassung. Fehlende
+  Veröffentlichungsdaten werden als unbekannt ausgegeben.
 
 Die Quellen sind keine vollständige Abdeckung des deutschen Stellenmarkts,
 insbesondere nicht sämtlicher Automotive-/Ingenieurstellen. Es werden keine
@@ -84,9 +108,19 @@ Der Score ist ein erklärbarer **Textabgleich**, keine bestätigte Eignung:
 der im Anzeigentext genannten Profilkenntnisse. Nicht genannte Kenntnisse sind
 kein Beleg für fehlende Qualifikation. Berufserfahrung, fachliche Tiefe, Arbeitszeit,
 Sprache, Gehalt und Länderberechtigung bei Remote-Arbeit bedürfen einer Prüfung.
-Der Bericht zeigt standardmäßig höchstens 50 Treffer und nennt auch die Gesamtzahl.
+Der Bericht zeigt standardmäßig höchstens 50 Ergebnisse je Pfad und nennt auch
+die Gesamtzahl. Qualifizierungs-/Partnerprogramme erhalten keinen Eignungsscore.
+Für den Prüfingenieur-Pfad sind insbesondere die Voraussetzungen der
+[Anlage VIIIb StVZO](https://www.gesetze-im-internet.de/stvzo_2012/anlage_viiib.html)
+mit der Überwachungsorganisation zu klären. Ingenieurabschluss und bestehende
+nebenberufliche Gutachtertätigkeit allein bestätigen keine Prüfingenieur-Betrauung.
 Gleiche Titel/Firmen/Orte werden zusammengeführt; unterschiedliche Ortsangaben
 können dazu führen, dass dieselbe Stelle mehrfach erscheint.
+
+Öffentliche Quelldaten werden pro UTC-Tag lokal und in GitHub Actions
+zwischengespeichert, um unnötige Wiederholungsabrufe zu vermeiden. Der Cache
+enthält keine Berufsprofile. PR-Tests lassen Remotive aus; tägliche und manuelle
+reguläre Läufe verwenden alle vier APIs.
 
 Fällt eine Quelle aus, bleibt der Bericht aus den übrigen Quellen verfügbar und
 nennt den Ausfall ausdrücklich. Liefern alle Quellen keine Anzeigen oder schlagen
@@ -108,7 +142,7 @@ sie wird für die tägliche profilbasierte Suche nicht verwendet.
 
 ## Verbindungsprüfung
 
-Am 4. November 2026 waren GitHub sowie alle drei eingebundenen Stellen-APIs per
+Am 4. November 2026 waren GitHub sowie alle vier eingebundenen Stellen-APIs per
 HTTPS erreichbar. Der öffentliche GitHub-Lesezugriff liefert HTTP 200.
 Der zusätzlich getestete Bundesagentur-Endpunkt
 `https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs?was=Python&size=3`

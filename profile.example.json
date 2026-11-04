@@ -6,5 +6,10 @@
   "required_keywords": [],
   "exclude_keywords": [],
   "required_any_keywords": [],
-  "search_note": ""
+  "search_note": "",
+  "preferred_roles": [],
+  "preferred_locations": [],
+  "excluded_role_keywords": [],
+  "homeoffice_required": false,
+  "salary_target_eur": null
 }

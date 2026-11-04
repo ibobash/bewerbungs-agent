@@ -5,3 +5,4 @@ jobs.json
 reports/
 profile.json
 *profile.private.json
+.source-cache/

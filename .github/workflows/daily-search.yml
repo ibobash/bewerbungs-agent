@@ -28,6 +28,7 @@ jobs:
           run = os.environ['EVENT_NAME'] != 'schedule' or datetime.now(ZoneInfo('Europe/Berlin')).hour == 7
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"run={str(run).lower()}\n")
+              f.write(f"day={datetime.now(ZoneInfo('UTC')).date()}\n")
           PY
       - uses: actions/checkout@v7.0.1
         if: steps.clock.outputs.run == 'true'
@@ -35,6 +36,12 @@ jobs:
         if: steps.clock.outputs.run == 'true'
         with:
           python-version: '3.12'
+      - name: Öffentliche Quelldaten pro Tag zwischenspeichern
+        if: steps.clock.outputs.run == 'true'
+        uses: actions/cache@v6.1.0
+        with:
+          path: .source-cache
+          key: job-sources-v1-${{ runner.os }}-${{ steps.clock.outputs.day }}
       - name: Automatische Tests
         if: steps.clock.outputs.run == 'true'
         run: python -m unittest discover -s tests -v
@@ -43,11 +50,14 @@ jobs:
         env:
           # Never expose the private profile to pull request code.
           PROFILE_JSON: ${{ github.event_name != 'pull_request' && secrets.JOB_PROFILE_JSON || '' }}
+          SKIP_REMOTIVE: ${{ github.event_name == 'pull_request' }}
         run: |
           python - <<'PY'
           import os, pathlib, subprocess, sys
           profile = pathlib.Path(os.environ['RUNNER_TEMP']) / 'job-profile.json'
           command = [sys.executable, '-m', 'bewerbungs_agent.daily']
+          if os.environ.get('SKIP_REMOTIVE') == 'true':
+              command.append('--skip-remotive')
           try:
               if os.environ.get('PROFILE_JSON', '').strip():
                   profile.write_text(os.environ['PROFILE_JSON'], encoding='utf-8')
