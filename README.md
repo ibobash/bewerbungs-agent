@@ -196,3 +196,27 @@ lieferte HTTP 403 mit und ohne `X-API-Key: jobboerse-jobsuche`, ohne erläuternd
 Fehlertext. Deshalb wird er nicht als funktionierende Datenquelle angeboten.
 Das belegt keinen bestimmten fehlenden Schlüssel. Für seine Einbindung müssen
 zunächst die aktuellen Zugangsvoraussetzungen des Anbieters geklärt werden.
+
+## Lebenslauf auf ATS-Lesbarkeit prüfen
+
+Im Chat genügt „Prüfe meinen Lebenslauf“ mit dem aktuellen Upload. Der Agent
+verwendet den lokalen Checker und erläutert konkrete Verbesserungen. Mit einer
+Zielanzeige kann er zusätzlich relevante Anforderungen abgleichen.
+
+```bash
+python -m bewerbungs_agent.ats /privat/Lebenslauf.pdf --output /privat/ats.json
+python -m bewerbungs_agent.ats /privat/Lebenslauf.docx --keywords "Requirements Engineering" "IBM DOORS"
+```
+
+PDF benötigt das lokale Programm `pdftotext` (Poppler). TXT, Markdown, DOCX und
+PPTX funktionieren mit der Python-Standardbibliothek. PPTX wird als Ausgangsdatei
+unterstützt; für Bewerbungsportale gelten deren Formatvorgaben. Der Bericht zeigt
+Textauszug, Hinweise zu Abschnitten, Kontakt, Zeiträumen, Tabellen und einen
+optionalen Wortabgleich. Bild-PDFs benötigen vorher OCR. Eine visuelle Kontrolle,
+semantische Eignungsbewertung und ein Test in einem echten ATS sind nicht enthalten.
+Kein universeller ATS-Score wird berechnet. Nicht gefundene Begriffe belegen keine
+fehlende Qualifikation; nur tatsächlich vorhandene Kenntnisse ergänzen.
+
+**Privat halten:** JSON-Berichte enthalten den vollständigen ausgelesenen
+Lebenslauf. Außerhalb des öffentlichen Repositorys speichern, nicht committen
+und nicht in Actions-Berichte übernehmen. Der Checker sendet keine Daten an APIs.
